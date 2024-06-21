@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html><head>
+  <title>Solar Simulator</title>
+<style>
+*{margin:0;padding:0}
+body{
+  background:#262626;
+  color:#aaa;
+}
+#ResultDiv { margin:10px; }
+.TableDiv {
+  display:grid;
+  grid-template-columns: [Time] 170px [NoSolar] 5fr [YesSolar] 5fr;
+}
+.TableHeader {
+    padding:20px;
+    background:#363636;
+}
+.Ledger {
+  display:grid;
+  grid-template-columns: [Name] 1fr [Amount] 0fr;
+  grid-gap: 0 10px;
+}
+.Ledger {
+  text-align:right;
+}
+.Ledger:nth-child(even) {
+  text-align:right;
+}
+.Total {
+    font-weight:bold;
+}
+.Loan {
+    font-weight:bold;
+}
+.LoanAmount {
+    color:#a02626;
+}
+</style>
+<script src="currency.js"></script>
+<script>
+
+function calculatePayment(principal, interest_rate, payment_count) {
+    let monthly_interest_rate = interest_rate / 12;
+    return principal.multiply(monthly_interest_rate).multiply(
+        Math.pow((1 + monthly_interest_rate), payment_count)
+    ).divide(
+        Math.pow((1 + monthly_interest_rate), payment_count) - 1
+    );
+}
+
+function bodyOnload() {
+    let html = '';
+
+    const down_payment = currency(10000);
+    const initial_power_bill = currency(100);
+    const power_bill_annual_increase = 0.0286;
+    const solar_cost = currency(30000);
+    const cash_interest_rate = 0.04;
+    const loan_interest_rate = 0.11;
+
+    const solar_loan_years = 10;
+    const solar_payment = calculatePayment(
+        solar_cost.subtract(down_payment),
+        loan_interest_rate,
+        solar_loan_years * 12
+    );
+    //const solar_payment = currency(200);
+
+    const solar_tax_credit_rate = 0.30;
+    const solar_tax_credit = solar_cost.multiply(solar_tax_credit_rate);
+    const solar_tax_credit_month = 6;
+
+    if (down_payment.value > solar_cost.cash) {
+        alert("down_payment must be <= solar_cost");
+        return;
+    }
+
+    html += '<br/><hr/>'
+    html += '<div>Solar Down Payment: ' + down_payment.format() + '</div>';
+    html += '<div>Cash Positive Interest: ' + (100*cash_interest_rate) + '%</div>';
+    html += '<div>Power: ' + initial_power_bill.format() + ' per month</div>';
+    html += '<div>Power Annual Increase: ' + (100*power_bill_annual_increase) + '%</div>';
+    html += '<div>Solar Cost: ' + solar_cost.format() + '</div>';
+    html += '<div>Solar Loan Interest: ' + (100*loan_interest_rate) + '%</div>';
+    html += '<div>Solar Loan Maturity: ' + solar_loan_years + ' Years at ' + solar_payment.format() + ' per month</div>';
+    //html += '<div>Solar Loan Time: ' + solar_loan_years + ' years</div>';
+    html += '<div>Solar Tax Credit: ' + (100*solar_tax_credit_rate) + '% (' +
+        solar_tax_credit.format() + ') on month ' + solar_tax_credit_month + '</div>';
+
+    // TODO: Solar System Value and/or Depreciation?
+
+    let no_solar_cash = down_payment;
+    let yes_solar_cash = currency(0);
+    let solar_loan = solar_cost.subtract(down_payment.value);
+
+    let table = '';
+    table += '<div class="TableDiv">';
+    table += '<div class="TableHeader">Time</div>';
+    table += '<div class="TableHeader" style="text-align:center">No Solar</div>';
+    table += '<div class="TableHeader" style="text-align:center">Yes Solar</div>';
+
+    let loan_payoff_month = null;
+
+    for (let month = 1; month <= 12*30; month++) {
+
+        let power_bill_mult = Math.pow(1 + power_bill_annual_increase, month/12);
+        let power_bill = initial_power_bill.multiply(power_bill_mult);
+
+        let cash_interest_no_solar = currency(0);
+        if (no_solar_cash.value > 0) {
+            cash_interest_no_solar = no_solar_cash.multiply(cash_interest_rate/12);
+        }
+        let cash_interest_yes_solar = currency(0);
+        if (yes_solar_cash.value > 0) {
+            cash_interest_yes_solar = yes_solar_cash.multiply(cash_interest_rate/12);
+        }
+
+        let loan_payment = currency(0);
+        let loan_interest = currency(0);
+        let loan_principal = currency(0);
+        if (solar_loan.value > 0) {
+            loan_payment = currency(Math.min(solar_payment.value, solar_loan.value));
+            loan_interest = solar_loan.multiply(loan_interest_rate/12);
+            loan_principal = loan_payment.subtract(loan_interest);
+            solar_loan = solar_loan.subtract(loan_payment);
+            yes_solar_cash = yes_solar_cash.subtract(loan_payment);
+            if (solar_loan.value == 0) {
+                loan_payoff_month = month;
+            }
+        }
+
+        let tax_credit = currency(0);
+        if (month == solar_tax_credit_month) {
+            tax_credit = currency(solar_tax_credit.value);
+
+            // apply to loan
+            if (loan_interest_rate >= cash_interest_rate && solar_loan.value > 0) {
+                let extra_loan_payment = currency(Math.min(solar_loan.value, solar_tax_credit.value));
+                tax_credit = tax_credit.subtract(extra_loan_payment);
+                loan_payment = loan_payment.add(extra_loan_payment);
+                loan_principal.add(extra_loan_payment);
+                solar_loan = solar_loan.subtract(loan_payment);
+                if (solar_loan.value == 0) {
+                    loan_payoff_month = month;
+                }
+            }
+        }
+
+
+        no_solar_cash = no_solar_cash.add(cash_interest_no_solar).subtract(power_bill);
+        yes_solar_cash = yes_solar_cash.add(cash_interest_yes_solar).add(tax_credit);
+
+        let no_solar_color;
+        let yes_solar_color;
+        if (yes_solar_cash.value > no_solar_cash.value) {
+            no_solar_color = 'red';
+            yes_solar_color = 'green';
+        } else {
+            no_solar_color = 'green';
+            yes_solar_color = 'red';
+        }
+
+        let year = 1 + Math.floor(month / 12);
+        table += '<div>Year: ' + year + ' (Month: ' + month + ')</div>';
+        table += '<div class="Ledger">';
+        table +=     '<div>PowerBill</div><div>' + power_bill.multiply(-1).format() + '</div>';
+        table +=     '<div>Cash Interest</div><div>' + cash_interest_no_solar.format() + '</div>';
+        table +=     '<div class="Total">Total</div>';
+        table +=     '<div class="Total" style="color:' + no_solar_color + '">';
+        table +=         no_solar_cash.format();
+        table +=     '</div>';
+        table += '</div>';
+        table += '<div class="Ledger">';
+        if (cash_interest_yes_solar.value != 0) {
+            table +=     '<div>Cash Interest</div><div>' + cash_interest_yes_solar.format() + '</div>';
+        }
+        if (loan_interest.value != 0) {
+            table +=     '<div>Loan Interest</div><div>' + loan_interest.multiply(-1).format() + '</div>';
+        }
+        if (loan_principal.value != 0) {
+            table +=     '<div>Principal</div><div>' + loan_principal.multiply(-1).format() + '</div>';
+        }
+        if (tax_credit.value != 0) {
+            table +=     '<div>Tax Credit</div><div>' + tax_credit.format() + '</div>';
+        }
+        table +=     '<div class="Total">Total</div>';
+        table +=     '<div class="Total" style="color:' + yes_solar_color + '">';
+        table +=         yes_solar_cash.format();
+        table +=     '</div>';
+        if (solar_loan.value != 0) {
+            table += '<div class="Loan">Loan</div><div class="Loan LoanAmount">' + solar_loan.format() + '</div>';
+        }
+        table += '</div>';
+    }
+    table += '</div>';
+
+    html += '<hr/>';
+    html += '<div>Loan Payoff: Year ' + Math.floor(loan_payoff_month/12) + ' Month ' + (loan_payoff_month%12) + '</div>';
+    html += '<hr/>';
+
+    document.getElementById("ResultDiv").innerHTML = html + table;
+}
+
+</script>
+</head><body onload="bodyOnload()">
+    <h1>Solar Simulator</h1>
+    <div>
+      Power Cost:
+      <input id="PowerCostMonth" type="radio" name="PowerCost" checked />Monthly
+      <input id="PowerCostYear" type="radio" name="PowerCost" />Yearly
+      <br/>
+      $<input type="text" value="100" size="8"/> <input type="range" />
+      <br/>
+      Range:<input type="checkbox" />
+      <br/>
+      $<input type="text" size="8" disabled /> <input type="range" disabled />
+    </div>
+    <div id="ResultDiv"></div>
+</body></html>
